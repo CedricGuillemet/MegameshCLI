@@ -1,0 +1,93 @@
+name: Build and release
+
+on:
+  pull_request:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x64
+            extension: tar.gz
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+            extension: tar.gz
+          - runner: macos-15-intel
+            target: macos-x64
+            extension: tar.gz
+          - runner: macos-15
+            target: macos-arm64
+            extension: tar.gz
+          - runner: windows-2022
+            target: windows-x64
+            extension: zip
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == Windows ]]; then
+            cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          else
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          fi
+      - name: Build and test
+        shell: bash
+        run: |
+          cmake --build build --config Release --parallel 4
+          ctest --test-dir build -C Release --output-on-failure
+          if [[ "${{ runner.os }}" == Windows ]]; then
+            python tests/verify_statue.py build/Release/mesh-lod-tool.exe assets/harvard-yenching_institute_statue.glb
+          else
+            python3 tests/verify_statue.py build/mesh-lod-tool assets/harvard-yenching_institute_statue.glb
+          fi
+      - name: Package executable
+        shell: bash
+        run: |
+          cmake --install build --config Release --prefix package
+          cmake -E copy README.md LICENSE assets/ATTRIBUTION.md package/
+          mkdir -p dist
+          if [[ "${{ runner.os }}" == Windows ]]; then
+            (cd package && cmake -E tar cf "../dist/megameshcli-${{ matrix.target }}.zip" --format=zip bin/mesh-lod-tool.exe README.md LICENSE ATTRIBUTION.md)
+          else
+            (cd package && cmake -E tar czf "../dist/megameshcli-${{ matrix.target }}.tar.gz" bin/mesh-lod-tool README.md LICENSE ATTRIBUTION.md)
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: megameshcli-${{ matrix.target }}
+          path: dist/megameshcli-${{ matrix.target }}.${{ matrix.extension }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: megameshcli-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish all archives and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd release-assets
+          test "$(find . -maxdepth 1 -type f -name 'megameshcli-*' | wc -l)" -eq 5
+          sha256sum megameshcli-* > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" megameshcli-* SHA256SUMS.txt \
+            --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
