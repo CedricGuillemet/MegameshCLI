@@ -9,7 +9,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <locale>
 #include <ostream>
+#include <sstream>
 #include <set>
 #include <string>
 #include <utility>
@@ -85,14 +87,14 @@ bool parseUint(const std::string& text, std::uint32_t& value) {
 // Locale-independent finite float parse. Requires the whole token to be consumed
 // and rejects NaN and infinities.
 bool parseFloat(const std::string& text, float& value) {
-    if (text.empty()) {
+    if (text.empty() || text[0] == '+') {
         return false;
     }
-    const char* begin = text.data();
-    const char* end = text.data() + text.size();
     float parsed = 0.0f;
-    const auto result = std::from_chars(begin, end, parsed);
-    if (result.ec != std::errc() || result.ptr != end) {
+    std::istringstream stream(text);
+    stream.imbue(std::locale::classic());
+    stream >> std::noskipws >> parsed;
+    if (stream.fail() || !stream.eof()) {
         return false;
     }
     if (!std::isfinite(parsed)) {

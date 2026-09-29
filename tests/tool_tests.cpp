@@ -183,6 +183,15 @@ void testErrors() {
            "NaN simplify ratio rejected");
     expect(parse(withIo({"--simplify-ratio", "inf"}), options) == mlod::kExitCli,
            "infinite simplify ratio rejected");
+    expect(parse(withIo({"--simplify-ratio", "+0.5"}), options) == mlod::kExitCli,
+           "leading plus sign rejected");
+    expect(parse(withIo({"--simplify-ratio", "0.5garbage"}), options) == mlod::kExitCli,
+           "trailing characters rejected");
+    expect(parse(withIo({"--simplify-ratio", " 0.5"}), options) == mlod::kExitCli,
+           "leading whitespace rejected");
+    expect(parse(withIo({"--simplify-ratio", "5e-1"}), options) == mlod::kExitSuccess &&
+               options.simplifyRatio == 0.5f,
+           "scientific notation remains supported");
     expect(parse(withIo({"--mesh"}), options) == mlod::kExitCli, "missing value rejected");
     expect(parse({"--input", "a", "--input", "b", "--output", "o.mlod"}, options) == mlod::kExitCli,
            "duplicate option rejected");
